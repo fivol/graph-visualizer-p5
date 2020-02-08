@@ -1,3 +1,5 @@
+/// Вершины графа можно двигать мышкой!
+
 /// Тут перечислены параметры, которые можно менять, для коррекции поведения
 // алгоритма отрисовки графа. (Сначала идет описание, затем параметры)
 // По умолчанию все выставлено и так неплохо...
@@ -20,14 +22,14 @@
 
 const repulsionForce = [-2.4, 1, 10, 10, 7]
 const attractionForce = [2, 0, 4, 2, 10]
-const borderRepulsionForce = [-1, 0.5, 10, 20, 1]
+const borderRepulsionForce = [-1, 0.5, 10, 20, 0.1]
 const centralAttractionForce = [1, 1, 2, 2, 0.01*0]
 
 
 // Показатель, действующий на итоговый сдвиг каждого узла
 // После пересчета значения сдвига вершины, это значение умножается на moveStrength
 
-const moveStrength = 10
+const moveStrength = 20
 
 
 // Если true, то вержина не сможет покинуть квадрат отображения
@@ -53,7 +55,7 @@ iterationsToShow = null
 // Ребра не повторяются и нет петель. На графе ровно указанное количество 
 // уникальных ребер
 
-const randomNodesCount = 20;
+const randomNodesCount = 10;
 const randomEdgesCount = 10;
 
 // Размеры холста
@@ -73,7 +75,7 @@ class Node{
     let y = 1 + Math.random() * (height - 2);
     this.pos = createVector(x, y)
     this.velocity = createVector(0, 0)
-    this.stopped = false
+    this.lockedPosition = false
   }
   
   draw(){
@@ -82,14 +84,33 @@ class Node{
     circle(this.pos.x, this.pos.y, 10)
   }
   
+  getDistanceWith(x, y){
+    return createVector(x - this.pos.x, y - this.pos.y).mag()
+  }
+  
+  shiftBy(x, y){
+    this.pos.add(createVector(x, y))
+  }
+  
+  moveTo(x, y){
+    this.pos = createVector(x, y)
+  }
+  
+  lockMovement(){
+    this.lockedPosition = true
+  }
+  
+  unlockMovement(){
+    this.lockedPosition = false
+  }
+  
   toForceVector(distVector, parameters, direction=1){
     let [pow, lowerBorder, upperBorder, minValue, coef] = parameters;
     
     let dist = distVector.mag();
-    dist = min(max(minValue, dist), maxSize)
-    distVector = distVector.div(dist)
+    distVector.div(dist)
     
-    dist = map(dist, minValue, maxSize, lowerBorder, upperBorder)
+    dist = map(dist, minValue, maxSize, lowerBorder, upperBorder, true)
     
     let forceFactor = Math.pow(dist, pow)
     return distVector.mult(forceFactor * coef * direction)
@@ -106,10 +127,10 @@ class Node{
   }
   
   calculateForceWithBorders(){
-    let top = createVector(0, this.pos.y);
-    let left = createVector(this.pos.x, 0);
-    let bottom = createVector(0, this.pos.y - height_);
-    let right = createVector(this.pos.x - width_, 0);
+    let top = createVector(0, max(1, this.pos.y));
+    let left = createVector(max(1, this.pos.x), 0);
+    let bottom = createVector(0, min(-1, this.pos.y - height_));
+    let right = createVector(min(-1, this.pos.x - width_), 0);
     
     let center = createVector(width_ / 2 - this.pos.x, height_ / 2 - this.pos.y);
     
@@ -135,6 +156,9 @@ class Node{
   }
   
   applyForce(forceVector){
+    if(this.lockedPosition)
+      return
+      
     forceVector.mult(moveStrength)
     
     if(applyForceModeVelocity){
@@ -189,11 +213,26 @@ class Graph{
       n.draw()
   }
   
+  getNearestNode(x, y){
+    let minDist = 9999999;
+    let bestNode = this.nodes[0]
+    for(let node of this.nodes){
+      let dist = node.getDistanceWith(x, y)
+      if(dist < minDist){
+        minDist = dist;
+        bestNode = node;
+      }
+    }
+    return bestNode
+  }
+  
   calculateForces(){
     let forces = {};
     for(let node1 of this.nodes){
       let id1 = node1.id;
-      forces[id1] = node1.calculateForceWithBorders();
+      let nodeBorderForce = node1.calculateForceWithBorders();
+      
+      forces[id1] = createVector(0, 0)
       
       for(let node2 of this.nodes){
         let id2 = node2.id;
@@ -207,6 +246,8 @@ class Graph{
         
         forces[id1].add(node1.calculateForceWith(node2, connected));
       }
+      
+      forces[id1].div(this.nodes.length).add(nodeBorderForce)
     }
     return forces;
   }
@@ -214,7 +255,7 @@ class Graph{
   applyForces(){
     let forces = this.calculateForces();
     for(let node of this.nodes){
-      node.applyForce(forces[node.id].div(this.nodes.length))
+      node.applyForce(forces[node.id])
     }
   }
 }
@@ -264,6 +305,29 @@ function draw() {
   iterationNum += 1
   if(iterationNum % 100 === 0)
     console.log('Current FrameRate:', frameRate(), '  Iterations:', iterationNum)
+}
+
+let selectedNode = null
+
+function mousePressed() {
+  let nearestNode = graph.getNearestNode(mouseX, mouseY)
+  if(nearestNode.getDistanceWith(mouseX, mouseY) < 20) {
+    selectedNode = nearestNode
+    selectedNode.lockMovement()
+  }
+}
+
+function mouseDragged() {
+  if (selectedNode) {
+    selectedNode.moveTo(mouseX, mouseY)
+  }
+}
+
+function mouseReleased() {
+  if(selectedNode){
+    selectedNode.unlockMovement()
+    selectedNode = null
+  }
 }
 
 
