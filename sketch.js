@@ -1,102 +1,152 @@
-// parameters = [pow, lowerBound, upperBond, minRealValue, coef]
+/// Тут перечислены параметры, которые можно менять, для коррекции поведения
+// алгоритма отрисовки графа. (Сначала идет описание, затем параметры)
+// По умолчанию все выставлено и так неплохо...
+// Замечание: граф - сложная система, и понять, как определенная конфикурация
+// параметров будет работать довольно сложно
+// Совет: выставить основные параметры на 0 (тогда граф замрет)
+// замем менять каждые по отдельности для достижения наилучшего результат
+// затем совмещать полученные значения
 
-let repulsionForce = [-2.4, 1, 10, 10, 7]
-let attractionForce = [2, 0, 4, 0, 10]
-let borderRepulsionForce = [-1, 0.5, 10, 20, 1]
-let centralAttractionForce = [1, 1, 2, 0, 0.01*0]
+
+// Ключевые параметры, задающие движение узлов графа
+// Все представлены в формате
+// let param = [pow, lowerBound, upperBound, minRealValue, coef]
+// Модуль вектора приводится из рамок 
+// (minRealValue, max(height, width)) в (lowerBound, upperBound).
+// То, что выходит за границы отсекается
+// Полученное значение умножается на coef для относительной регулировки
+// pow - степень в которую возводится нормализованный модуль вектора
 
 
-let frameRateValue = 100
+const repulsionForce = [-2.4, 1, 10, 10, 7]
+const attractionForce = [2, 0, 4, 2, 10]
+const borderRepulsionForce = [-1, 0.5, 10, 20, 1]
+const centralAttractionForce = [1, 1, 2, 2, 0.01*0]
+
+
+// Показатель, действующий на итоговый сдвиг каждого узла
+// После пересчета значения сдвига вершины, это значение умножается на moveStrength
+
+const moveStrength = 10
+
+
+// Если true, то вержина не сможет покинуть квадрат отображения
+const needBorderBox = false
+
+
+// Если true, то полученная сила, приложенная к вершине будет влиять
+// на скорость узла, а не местоположение, таким образом появляется инерция
+
+const applyForceModeVelocity = false
+
+
+// frameRateValue - максимальное fps
+// Если iterationsToShow - null, то отображается анимация
+// иначе n итераций происходит без анимации и выводится только результат
+
+const frameRateValue = 100
 let iterationsToShow = 50
 iterationsToShow = null
 
-let moveStrength = 20
 
-let randomNodesCount = 10;
-let randomEdgesCount = 8;
+// Нельзя указывать ребер больше чем может быть. Иначе будет бесконечный цикл
+// Ребра не повторяются и нет петель. На графе ровно указанное количество 
+// уникальных ребер
+
+const randomNodesCount = 20;
+const randomEdgesCount = 10;
+
+// Размеры холста
 
 width_ = 800
 height_ = 800
 
+
+/// Тут уже начинается код. Если не шаришь, лучше не лезь, иначе все сломаешь
+
+const maxSize = Math.max(width_, height_)
+
 class Node{
   constructor(id){
     this.id = id;
-    this.x = 1 + Math.random() * (width - 2);
-    this.y = 1 + Math.random() * (height - 2);
-    this.xVelocity = 0
-    this.yVelocity = 0
-    this.blocked = false
+    let x = 1 + Math.random() * (width - 2);
+    let y = 1 + Math.random() * (height - 2);
+    this.pos = createVector(x, y)
+    this.velocity = createVector(0, 0)
+    this.stopped = false
   }
   
   draw(){
     stroke('black')
     fill('blue')
-    circle(this.x, this.y, 10)
+    circle(this.pos.x, this.pos.y, 10)
   }
   
-  
-  toForceVector(distVector, parameters, direction){
-    let dist = distVector.mag();
-    
+  toForceVector(distVector, parameters, direction=1){
     let [pow, lowerBorder, upperBorder, minValue, coef] = parameters;
     
-    dist = min(max(minValue, dist), width)
-    dist = map(dist, minValue, width, lowerBorder, upperBorder)
+    let dist = distVector.mag();
+    dist = min(max(minValue, dist), maxSize)
+    distVector = distVector.div(dist)
+    
+    dist = map(dist, minValue, maxSize, lowerBorder, upperBorder)
     
     let forceFactor = Math.pow(dist, pow)
-    return distVector.normalize().mult(forceFactor * coef * direction)
+    return distVector.mult(forceFactor * coef * direction)
   }
   
   calculateForceWith(other, connected){
-    let x = other.x - this.x;
-    let y = other.y - this.y;
+    let dir = other.pos.copy().sub(this.pos)
     
-    let dir = createVector(x, y)
     let move = this.toForceVector(dir.copy(), repulsionForce, -1)
     if(connected)
-      return this.toForceVector(dir, attractionForce, 1).add(move)
+      return this.toForceVector(dir, attractionForce).add(move)
     
     return move
   }
   
   calculateForceWithBorders(){
-    let top = createVector(0, this.y);
-    let left = createVector(this.x, 0);
-    let bottom = createVector(0, this.y - height);
-    let right = createVector(this.x - width, 0);
+    let top = createVector(0, this.pos.y);
+    let left = createVector(this.pos.x, 0);
+    let bottom = createVector(0, this.pos.y - height_);
+    let right = createVector(this.pos.x - width_, 0);
     
-    let center = createVector(width / 2 - this.x, height / 2 - this.y);
+    let center = createVector(width_ / 2 - this.pos.x, height_ / 2 - this.pos.y);
     
-    let sum = this.toForceVector(center, centralAttractionForce, 1)
-    sum.add(this.toForceVector(top, borderRepulsionForce, 1));
-    sum.add(this.toForceVector(left, borderRepulsionForce, 1));
-    sum.add(this.toForceVector(bottom, borderRepulsionForce, 1));
-    sum.add(this.toForceVector(right, borderRepulsionForce, 1));
+    let sum = this.toForceVector(center, centralAttractionForce)
+    sum.add(this.toForceVector(top, borderRepulsionForce));
+    sum.add(this.toForceVector(left, borderRepulsionForce));
+    sum.add(this.toForceVector(bottom, borderRepulsionForce));
+    sum.add(this.toForceVector(right, borderRepulsionForce));
     return sum;
   }
   
   normalizePosition(){
+    if(!needBorderBox)
+      return
     const normalizeCoordinate = (value, maxValue) => {
       return max(min(value, maxValue), 0)
     }
     
-    // this.x = normalizeCoordinate(this.x, width);
-    // this.y = normalizeCoordinate(this.y, height);
+    this.pos = createVector(
+      normalizeCoordinate(this.pos.x, width), 
+      normalizeCoordinate(this.pos.y, height)
+    );
   }
   
   applyForce(forceVector){
-    // if(this.blocked)
-    //   returnconso
-    this.xVelocity += forceVector.x * moveStrength;
-    this.yVelocity += forceVector.y * moveStrength;
+    forceVector.mult(moveStrength)
     
-    // if(this.accumulateX  == 0 && this.accumulateY == 0)
-    //   this.blocked = true
-    
-    // this.x += this.xVelocity
-    // this.y += this.yVelocity
-    this.x += forceVector.x * moveStrength
-    this.y += forceVector.y * moveStrength
+    if(applyForceModeVelocity){
+      
+      this.velocity.add(forceVector)
+      this.pos.add(this.velocity)
+      
+    }else{
+      
+      this.pos.add(forceVector)
+      
+    }    
     
     this.normalizePosition()
   }
@@ -109,7 +159,7 @@ class Edge{
   }
   draw(){
     stroke('grey')
-    line(this.n1.x, this.n1.y, this.n2.x, this.n2.y)
+    line(this.n1.pos.x, this.n1.pos.y, this.n2.pos.x, this.n2.pos.y)
   }
 }
 
@@ -188,14 +238,14 @@ function setup() {
   }
   
   for(let i = 0; i < edgesCount; ){
-    let node1ID = (floor(random(nodesCount)))
-    let node2ID = (floor(random(nodesCount)))
+    let n1 = (floor(random(nodesCount)))
+    let n2 = (floor(random(nodesCount)))
     
-    if(node1ID !== node2ID && !edgesDict[node1ID].includes(node2ID)){
+    if(n1 !== n2 && !edgesDict[n1].includes(n2)){
       i ++
-      edgesDict[node1ID].push(node2ID)
-      edgesDict[node2ID].push(node1ID)
-      edges.push(new Edge(nodes[node1ID], nodes[node2ID]))
+      edgesDict[n1].push(n2)
+      edgesDict[n2].push(n2)
+      edges.push(new Edge(nodes[n1], nodes[n2]))
     }
   }
   
@@ -213,6 +263,7 @@ function draw() {
   graph.applyForces()
   iterationNum += 1
   if(iterationNum % 100 === 0)
-    console.log(frameRate())
+    console.log('Current FrameRate:', frameRate(), '  Iterations:', iterationNum)
 }
+
 
